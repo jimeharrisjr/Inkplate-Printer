@@ -27,10 +27,11 @@ static uint8_t sRowBuf[SCREEN_WIDTH];
 // ── Page rendering ──────────────────────────────────────────
 
 static void renderPageFromSD(int docId, int pageNum, bool is1Bit) {
-    // Get actual stored dimensions (may differ from SCREEN_WIDTH/HEIGHT)
-    int pageW = SCREEN_WIDTH, pageH = SCREEN_HEIGHT;
+    // Pages are stored in portrait (600 wide × 800 tall).
+    // Render rotated 90° CW onto the 800×600 landscape display:
+    //   stored (sx, sy) → display (pageH-1-sy, sx)
+    int pageW = SCREEN_HEIGHT, pageH = SCREEN_WIDTH;  // 600×800 default
     sdGetDocumentDimensions(docId, &pageW, &pageH);
-    int readW = pageW < SCREEN_WIDTH ? pageW : SCREEN_WIDTH;
 
     char path[48];
     snprintf(path, sizeof(path), "/print/doc_%04d/page_%03d.raw",
@@ -44,22 +45,22 @@ static void renderPageFromSD(int docId, int pageNum, bool is1Bit) {
 
     Inkplate& d = hwDisplay();
 
-    for (int y = 0; y < pageH && y < SCREEN_HEIGHT; y++) {
-        int bytesRead = f.read(sRowBuf, readW);
+    for (int sy = 0; sy < pageH; sy++) {
+        int bytesRead = f.read(sRowBuf, pageW);
         if (bytesRead <= 0) break;
 
-        // Skip excess bytes if page is wider than screen
-        if (pageW > SCREEN_WIDTH) {
-            f.seekCur(pageW - SCREEN_WIDTH);
-        }
+        int dx = pageH - 1 - sy;  // display X = column from the right
+        if (dx < 0 || dx >= SCREEN_WIDTH) continue;
 
-        for (int x = 0; x < bytesRead; x++) {
-            uint8_t color = sRowBuf[x];
+        for (int sx = 0; sx < bytesRead; sx++) {
+            int dy = sx;  // display Y = row
+            if (dy >= SCREEN_HEIGHT) break;
+
+            uint8_t color = sRowBuf[sx];
             if (is1Bit) {
-                // Threshold: 0-3 → black(0), 4-7 → white(1)
-                d.drawPixel(x, y, color >= 4 ? 1 : 0);
+                d.drawPixel(dx, dy, color >= 4 ? 1 : 0);
             } else {
-                d.drawPixel(x, y, color);
+                d.drawPixel(dx, dy, color);
             }
         }
     }

@@ -35,7 +35,7 @@
 // ============================================================
 // Derived Display & Media Constants (do not edit)
 // ============================================================
-#define PRINTER_DPI             150
+#define PRINTER_DPI             166
 
 #ifdef INKPLATE_MODEL_MONO
   #define SCREEN_WIDTH          800
@@ -43,20 +43,19 @@
   #define IS_COLOR_MODEL        false
   #define COLOR_BLACK           0
   #define COLOR_WHITE           7
-  // 800/150 DPI = 5.333" = 135.47mm; 600/150 = 4.000" = 101.60mm
-  #define MEDIA_NAME            "custom_inkplate6_135.47x101.60mm"
-  #define MEDIA_WIDTH_HMM       13547   // hundredths of mm
-  #define MEDIA_HEIGHT_HMM      10160
 #else
   #define SCREEN_WIDTH          600
   #define SCREEN_HEIGHT         448
   #define IS_COLOR_MODEL        true
   #define COLOR_BLACK           0
   #define COLOR_WHITE           1
-  // 600/150 DPI = 4.000" = 101.60mm; 448/150 = 2.987" = 75.86mm
-  #define MEDIA_NAME            "custom_inkplate6color_101.60x75.86mm"
-  #define MEDIA_WIDTH_HMM       10160
-  #define MEDIA_HEIGHT_HMM       7586
 #endif
+
+// Page size matches the physical Inkplate display (~91×122mm).
+// At 166 DPI this produces 600×800 pixels — no scaling needed.
+// 12pt text renders at ~28 pixels, readable on the e-ink screen.
+#define MEDIA_NAME              "custom_inkplate_91.80x122.40mm"
+#define MEDIA_WIDTH_HMM          9180   // 91.8mm ≈ 3.61"
+#define MEDIA_HEIGHT_HMM        12240   // 122.4mm ≈ 4.82"
 
 #endif // CONFIG_H

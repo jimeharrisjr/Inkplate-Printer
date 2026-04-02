@@ -272,13 +272,36 @@ static bool parsePage(int docId, int pageNum) {
     bool isRGB = (colorSpace == CSPACE_RGB || colorSpace == CSPACE_SRGB);
     bool usePackBits = (compression != 0);
 
-    // Scaling: if input is larger than screen, scale to fit
-    bool needScale = (inW != SCREEN_WIDTH || inH != SCREEN_HEIGHT);
-    int outW = SCREEN_WIDTH;
-    int outH = SCREEN_HEIGHT;
+    // Scale-to-fit: uniform scaling that preserves aspect ratio, centered.
+    // The scaled content is padded with white on the shorter axis.
+    // Store pages in portrait: 600 wide × 800 tall.
+    // Display renders rotated 90° onto the 800×600 landscape screen.
+    int outW = SCREEN_HEIGHT;  // 600 (portrait width)
+    int outH = SCREEN_WIDTH;   // 800 (portrait height)
+    bool needScale = (inW != outW || inH != outH);
+
+    // fitW × fitH = scaled content area within outW × outH
+    int fitW = outW;
+    int fitH = outH;
+    int padLeft = 0;
+    int padTop  = 0;
 
     if (needScale) {
-        Serial.printf("[PWG]  Scaling %dx%d → %dx%d\n", inW, inH, outW, outH);
+        // Uniform scale factor = min(outW/inW, outH/inH)
+        // Use integer math: compare outW*inH vs outH*inW
+        if ((long)outW * inH < (long)outH * inW) {
+            // Width is the limiting dimension
+            fitW = outW;
+            fitH = (int)((long)inH * outW / inW);
+            padTop = (outH - fitH) / 2;
+        } else {
+            // Height is the limiting dimension
+            fitH = outH;
+            fitW = (int)((long)inW * outH / inH);
+            padLeft = (outW - fitW) / 2;
+        }
+        Serial.printf("[PWG]  Scale %dx%d -> %dx%d (pad L=%d T=%d)\n",
+                      inW, inH, fitW, fitH, padLeft, padTop);
     }
 
     // Open page file
@@ -288,17 +311,22 @@ static bool parsePage(int docId, int pageNum) {
     memset(sErrCur, 0, sizeof(sErrCur));
     memset(sErrNxt, 0, sizeof(sErrNxt));
 
-    // Process scanlines.
-    // We read ALL input lines but only output lines that map to output rows.
-    // For scaling height: output row R maps to input row R * inH / outH.
-    // We track which output row we're expecting next and emit lines when
-    // the input row matches.
-    int inputLine  = 0;   // current input line number
-    int outputLine = 0;   // next output line to produce
-    int nextInputForOutput = 0; // input line that maps to the next output row
+    // Write top padding rows (white)
+    uint8_t whiteVal = COLOR_WHITE;
+    memset(sOutBuf, whiteVal, outW);
+    for (int y = 0; y < padTop; y++) {
+        sdWritePageRow(sOutBuf, outW);
+    }
+
+    // Process input scanlines → scaled content rows.
+    // Read ALL input lines (to keep stream in sync).
+    // Emit only lines that map to output rows within the fitH content area.
+    // Output content row R maps to input row R * inH / fitH.
+    int inputLine  = 0;
+    int contentRow = 0;   // 0..fitH-1 within the content area
+    int nextInputForContent = 0;
 
     while (inputLine < inH) {
-        // Read line repeat count
         int repeatCount = streamReadByte();
         if (repeatCount < 0) {
             Serial.printf("[PWG]  Stream ended at input line %d/%d\n",
@@ -306,7 +334,6 @@ static bool parsePage(int docId, int pageNum) {
             break;
         }
 
-        // Decompress/read one input line
         bool lineOK;
         if (usePackBits) {
             lineOK = decompressLine(sLineBuf, (int)bytesPerLine);
@@ -318,69 +345,79 @@ static bool parsePage(int docId, int pageNum) {
             break;
         }
 
-        // This decompressed line covers input rows [inputLine .. inputLine+repeatCount]
-        int lineStart = inputLine;
-        int lineEnd   = inputLine + repeatCount; // inclusive
+        int lineEnd = inputLine + repeatCount;
         inputLine = lineEnd + 1;
 
-        // Check which output rows map into this input line range
-        while (outputLine < outH && nextInputForOutput <= lineEnd) {
-            // Scale the input line horizontally → sScaleBuf
-            uint8_t* src = sLineBuf;
-            if (needScale && inW != outW) {
-                // Nearest-neighbor horizontal scale
-                for (int ox = 0; ox < outW; ox++) {
-                    int ix = (int)((long)ox * inW / outW);
-                    if (ix >= inW) ix = inW - 1;
-                    for (int c = 0; c < bpp; c++)
-                        sScaleBuf[ox * bpp + c] = sLineBuf[ix * bpp + c];
-                }
-                src = sScaleBuf;
+        // Emit output rows that map into this input line range
+        while (contentRow < fitH && nextInputForContent <= lineEnd) {
+            // Horizontal scale: input line → fitW pixels in sScaleBuf
+            // Then center with padLeft padding
+            memset(sOutBuf, whiteVal, outW); // clear to white (for padding)
+
+            // Scale horizontally into sScaleBuf
+            for (int ox = 0; ox < fitW; ox++) {
+                int ix = (int)((long)ox * inW / fitW);
+                if (ix >= inW) ix = inW - 1;
+                for (int c = 0; c < bpp; c++)
+                    sScaleBuf[ox * bpp + c] = sLineBuf[ix * bpp + c];
             }
 
-            // Convert and dither at output width
+            // Copy scaled data to sLineBuf for dithering (at fitW width)
+            memcpy(sLineBuf, sScaleBuf, fitW * bpp);
+
+            // Dither at fitW width → sOutBuf starting at padLeft
 #ifdef INKPLATE_MODEL_COLOR
             if (isRGB) {
-                // Copy scaled line to sLineBuf for dithering if needed
-                if (src != sLineBuf) memcpy(sLineBuf, src, outW * bpp);
-                ditherColorLine(outW);
+                ditherColorLine(fitW);
             } else {
-                for (int x = outW - 1; x >= 0; x--) {
-                    sLineBuf[x * 3 + 0] = src[x];
-                    sLineBuf[x * 3 + 1] = src[x];
-                    sLineBuf[x * 3 + 2] = src[x];
+                for (int x = fitW - 1; x >= 0; x--) {
+                    sLineBuf[x * 3 + 0] = sLineBuf[x];
+                    sLineBuf[x * 3 + 1] = sLineBuf[x];
+                    sLineBuf[x * 3 + 2] = sLineBuf[x];
                 }
-                ditherColorLine(outW);
+                ditherColorLine(fitW);
             }
 #else
-            if (src != sLineBuf) memcpy(sLineBuf, src, outW * bpp);
             if (isRGB) {
-                rgbToGray(sLineBuf, outW);
+                rgbToGray(sLineBuf, fitW);
             }
-            ditherGrayscaleLine(outW);
+            ditherGrayscaleLine(fitW);
 #endif
+            // Shift dithered pixels right by padLeft (sOutBuf has fitW pixels
+            // at position 0; we need them at padLeft)
+            if (padLeft > 0) {
+                memmove(sOutBuf + padLeft, sOutBuf, fitW);
+                memset(sOutBuf, whiteVal, padLeft);
+            }
 
             sdWritePageRow(sOutBuf, outW);
 
-            // Swap error buffers
 #ifdef INKPLATE_MODEL_COLOR
             int errCh = 3;
 #else
             int errCh = 1;
 #endif
-            memcpy(sErrCur, sErrNxt, sizeof(int16_t) * outW * errCh);
-            memset(sErrNxt, 0, sizeof(int16_t) * outW * errCh);
+            memcpy(sErrCur, sErrNxt, sizeof(int16_t) * fitW * errCh);
+            memset(sErrNxt, 0, sizeof(int16_t) * fitW * errCh);
 
-            outputLine++;
-            nextInputForOutput = (int)((long)outputLine * inH / outH);
+            contentRow++;
+            nextInputForContent = (int)((long)contentRow * inH / fitH);
         }
+    }
+
+    // Write bottom padding rows (white)
+    int bottomPad = outH - padTop - contentRow;
+    memset(sOutBuf, whiteVal, outW);
+    for (int y = 0; y < bottomPad; y++) {
+        sdWritePageRow(sOutBuf, outW);
     }
 
     sdClosePageWrite();
 
-    Serial.printf("[PWG]  Page %d: %d lines written (from %dx%d input)\n",
-                  pageNum, outputLine, inW, inH);
-    return outputLine > 0;
+    int totalRows = padTop + contentRow + bottomPad;
+    Serial.printf("[PWG]  Page %d: %d rows (%dx%d → %dx%d content)\n",
+                  pageNum, totalRows, inW, inH, fitW, fitH);
+    return totalRows > 0;
 }
 
 // ── Public API ──────────────────────────────────────────────
@@ -446,8 +483,8 @@ int pwgParseDocument(int docId, int bytesAvailable) {
     }
 
     if (pageCount > 0) {
-        int w = SCREEN_WIDTH;
-        int h = SCREEN_HEIGHT;
+        int w = SCREEN_HEIGHT;  // 600 (portrait width)
+        int h = SCREEN_WIDTH;   // 800 (portrait height)
         sdFinalizeDocument(docId, pageCount, w, h);
         Serial.printf("[PWG]  Document complete: %d pages\n", pageCount);
     }
