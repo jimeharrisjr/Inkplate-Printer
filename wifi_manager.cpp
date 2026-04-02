@@ -285,7 +285,16 @@ void wifiManagerInit() {
             return;
         }
 
-        Serial.println("[WIFI] Connection failed");
+        // Connection failed — stop WiFi completely before entering AP mode
+        Serial.println("[WIFI] Connection failed, clearing credentials");
+        WiFi.disconnect(true);  // disconnect and clear auto-reconnect
+        delay(500);
+
+        // Clear the bad credentials so we don't loop on next reboot
+        sPrefs.begin("inkplate", false);
+        sPrefs.clear();
+        sPrefs.end();
+
         showConnectionFailed();
     } else {
         Serial.println("[WIFI] No stored credentials");

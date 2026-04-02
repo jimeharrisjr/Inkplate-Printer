@@ -109,6 +109,12 @@
 <pre><code>#define INKPLATE_MODEL_COLOR   // Inkplate 6 Color (600x448, 7-color)</code></pre>
 <p>And make sure the Mono line is commented out:</p>
 <pre><code>// #define INKPLATE_MODEL_MONO    // Inkplate 6 (800x600, 3-bit grayscale)</code></pre>
+
+<div class="warn">
+<strong>Touchpad warning:</strong> There are widespread reports of Inkplate 6 Color units shipping with non-functional or unreliable capacitive touchpads. Before flashing this project, test your touchpads using the library's built-in example:
+<strong>File &rarr; Examples &rarr; InkplateLibrary &rarr; Inkplate6COLOR &rarr; Basic &rarr; Inkplate6COLOR_Read_Touchpads</strong>.
+Open the Serial Monitor at 115200 baud and verify that all three pads respond when touched. If they don't, you will not be able to navigate between pages and documents. The Inkplate 6 (mono) does not have this issue.
+</div>
 </div>
 
 <h3>Optional: Change the printer name</h3>

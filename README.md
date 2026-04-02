@@ -19,6 +19,8 @@ Turn an [Inkplate 6](https://docs.soldered.com/inkplate/) into a wireless networ
 | **Inkplate 6** | 6" e-ink | 800 x 600 | 8-level grayscale |
 | **Inkplate 6 Color** | 6" e-ink | 600 x 448 | 7 colors |
 
+> **Inkplate 6 Color touchpad warning:** There are widespread reports of Inkplate 6 Color units shipping with non-functional or unreliable capacitive touchpads. Before flashing this project, test your touchpads using the library's built-in example: **File → Examples → InkplateLibrary → Inkplate6COLOR → Basic → Inkplate6COLOR_Read_Touchpads**. If not all three pads respond, you will not be able to navigate between pages/documents. The Inkplate 6 (mono) does not have this issue.
+
 ## Features
 
 - **Driverless printing** from Mac (IPP Everywhere / AirPrint) and Windows

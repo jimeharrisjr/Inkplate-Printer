@@ -166,6 +166,7 @@ void navigationLoop() {
     pads[1] = hwReadTouchpad(PAD2);
     pads[2] = hwReadTouchpad(PAD3);
 
+
     unsigned long now = millis();
 
     // Detect releases (press-then-release with >50ms hold = valid tap)
