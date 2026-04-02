@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inkplate E-Ink Printer — Getting Started Guide</title>
+<style>
+  :root { --bg: #fafafa; --fg: #222; --accent: #1a6fb5; --border: #ddd; --code-bg: #f0f0f0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+         color: var(--fg); background: var(--bg); line-height: 1.7; padding: 0 20px 60px; }
+  .container { max-width: 800px; margin: 0 auto; }
+  h1 { font-size: 2em; margin: 40px 0 10px; }
+  h2 { font-size: 1.5em; margin: 40px 0 15px; border-bottom: 2px solid var(--accent); padding-bottom: 6px; }
+  h3 { font-size: 1.15em; margin: 25px 0 10px; }
+  p, li { margin-bottom: 10px; }
+  ul, ol { padding-left: 24px; }
+  a { color: var(--accent); }
+  code { background: var(--code-bg); padding: 2px 6px; border-radius: 3px; font-size: 0.92em; }
+  pre { background: var(--code-bg); padding: 16px; border-radius: 6px; overflow-x: auto;
+        margin: 12px 0 20px; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  .hero-img { width: 100%; max-width: 500px; display: block; margin: 20px auto; border-radius: 8px;
+              box-shadow: 0 4px 16px rgba(0,0,0,0.15); }
+  .note { background: #e8f4fd; border-left: 4px solid var(--accent); padding: 12px 16px;
+          margin: 16px 0; border-radius: 0 6px 6px 0; }
+  .warn { background: #fff3e0; border-left: 4px solid #e67e22; padding: 12px 16px;
+          margin: 16px 0; border-radius: 0 6px 6px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+  th { background: var(--code-bg); }
+  .step { counter-increment: step; position: relative; padding-left: 48px; margin-bottom: 24px; }
+  .step::before { content: counter(step); position: absolute; left: 0; top: 0;
+                  width: 34px; height: 34px; background: var(--accent); color: white;
+                  border-radius: 50%; text-align: center; line-height: 34px; font-weight: bold; }
+  .steps { counter-reset: step; }
+  .tab-group { display: flex; gap: 0; margin-top: 20px; }
+  .tab-group button { padding: 10px 20px; border: 1px solid var(--border); background: var(--code-bg);
+                      cursor: pointer; font-size: 1em; }
+  .tab-group button.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .tab-content { display: none; border: 1px solid var(--border); border-top: none; padding: 20px; }
+  .tab-content.active { display: block; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Inkplate E-Ink Printer</h1>
+<p>Turn your Inkplate into a wireless network printer. Print from any app on your Mac or Windows PC.</p>
+
+<img src="../inkplate_printer.jpeg" alt="Inkplate displaying a printed web page from a browser" class="hero-img">
+
+<h2>What You Need</h2>
+<ul>
+  <li><strong>Inkplate 6</strong> (800&times;600, grayscale) or <strong>Inkplate 6 Color</strong> (600&times;448, 7-color)</li>
+  <li><strong>Micro SD card</strong> — FAT32 formatted, any size (4GB+ recommended)</li>
+  <li><strong>Arduino IDE</strong> 1.8 or later (or Arduino IDE 2.x)</li>
+  <li><strong>USB cable</strong> — micro-USB or USB-C depending on your Inkplate model</li>
+  <li><strong>WiFi network</strong> — 2.4 GHz (the ESP32 does not support 5 GHz)</li>
+</ul>
+
+<h2>Step 1 — Install Arduino &amp; Inkplate Board Package</h2>
+
+<div class="steps">
+<div class="step">
+  <h3>Install Arduino IDE</h3>
+  <p>Download from <a href="https://www.arduino.cc/en/software">arduino.cc</a> and install it.</p>
+</div>
+
+<div class="step">
+  <h3>Add the Inkplate board URL</h3>
+  <p>Open Arduino IDE. Go to <strong>File &rarr; Preferences</strong> (or <strong>Arduino &rarr; Settings</strong> on Mac).</p>
+  <p>In the <strong>Additional Board Manager URLs</strong> field, add:</p>
+  <pre><code>https://github.com/SolderedElectronics/Dasduino-Board-Definitions-for-Arduino-IDE/raw/master/package_Dasduino_Boards_index.json</code></pre>
+</div>
+
+<div class="step">
+  <h3>Install the Inkplate board package</h3>
+  <p>Go to <strong>Tools &rarr; Board &rarr; Board Manager</strong>. Search for <strong>Inkplate</strong> and install <strong>Inkplate Boards</strong>.</p>
+</div>
+
+<div class="step">
+  <h3>Install the Inkplate library</h3>
+  <p>Go to <strong>Sketch &rarr; Include Library &rarr; Manage Libraries</strong>. Search for <strong>InkplateLibrary</strong> and install it.</p>
+</div>
+</div>
+
+<h2>Step 2 — Configure for Your Hardware</h2>
+
+<p>Open the project folder in Arduino IDE by opening <code>inkplate_print.ino</code>.</p>
+
+<p>Open <code>config.h</code> and uncomment the line matching your Inkplate model:</p>
+
+<div class="tab-group">
+  <button class="active" onclick="showTab('mono')">Inkplate 6</button>
+  <button onclick="showTab('color')">Inkplate 6 Color</button>
+</div>
+
+<div id="tab-mono" class="tab-content active">
+<p>For the <strong>Inkplate 6</strong> (grayscale, 800&times;600), uncomment this line:</p>
+<pre><code>#define INKPLATE_MODEL_MONO    // Inkplate 6 (800x600, 3-bit grayscale)</code></pre>
+<p>And make sure the Color line is commented out:</p>
+<pre><code>// #define INKPLATE_MODEL_COLOR   // Inkplate 6 Color (600x448, 7-color)</code></pre>
+<p>This is the default &mdash; if both lines are commented, the Inkplate 6 mono is selected automatically.</p>
+</div>
+
+<div id="tab-color" class="tab-content">
+<p>For the <strong>Inkplate 6 Color</strong> (7-color, 600&times;448), uncomment this line:</p>
+<pre><code>#define INKPLATE_MODEL_COLOR   // Inkplate 6 Color (600x448, 7-color)</code></pre>
+<p>And make sure the Mono line is commented out:</p>
+<pre><code>// #define INKPLATE_MODEL_MONO    // Inkplate 6 (800x600, 3-bit grayscale)</code></pre>
+</div>
+
+<h3>Optional: Change the printer name</h3>
+<p>The printer appears on your network as <code>Inkplate-printer</code>. To change this, edit:</p>
+<pre><code>#define PRINTER_NAME  "Inkplate-printer"</code></pre>
+
+<h2>Step 3 — Prepare the SD Card</h2>
+
+<div class="steps" style="counter-reset: step;">
+<div class="step">
+  <p>Insert a micro SD card into your computer (using an adapter if needed).</p>
+</div>
+<div class="step">
+  <p>Format it as <strong>FAT32</strong>. On Mac: open <strong>Disk Utility</strong>, select the card, click <strong>Erase</strong>, choose format <strong>MS-DOS (FAT)</strong>. On Windows: right-click the drive in File Explorer and choose <strong>Format &rarr; FAT32</strong>.</p>
+</div>
+<div class="step">
+  <p>Insert the SD card into the Inkplate's micro SD card slot.</p>
+</div>
+</div>
+
+<div class="note">
+  The Inkplate will create a <code>/print/</code> folder on the SD card automatically. You don't need to create any files or folders.
+</div>
+
+<h2>Step 4 — Upload the Sketch</h2>
+
+<div class="steps" style="counter-reset: step;">
+<div class="step">
+  <p>Connect the Inkplate to your computer via USB.</p>
+</div>
+<div class="step">
+  <h3>Select the correct board</h3>
+  <p>Go to <strong>Tools &rarr; Board</strong> and select:</p>
+  <table>
+    <tr><th>Model</th><th>Board selection</th></tr>
+    <tr><td>Inkplate 6</td><td><code>e-radionica.com Inkplate6</code></td></tr>
+    <tr><td>Inkplate 6 Color</td><td><code>Soldered Inkplate 6COLOR</code></td></tr>
+  </table>
+</div>
+<div class="step">
+  <h3>Select the serial port</h3>
+  <p>Go to <strong>Tools &rarr; Port</strong> and select the port for your Inkplate (usually <code>/dev/cu.usbserial-...</code> on Mac or <code>COM3</code>+ on Windows).</p>
+</div>
+<div class="step">
+  <h3>Upload</h3>
+  <p>Click the <strong>Upload</strong> button (right arrow icon). Wait for the compile and upload to finish.</p>
+  <p>If the upload fails with a connection error, try holding the <strong>BOOT</strong> button on the Inkplate while pressing <strong>RESET</strong>, then release BOOT and click Upload again.</p>
+</div>
+</div>
+
+<h2>Step 5 — Connect to WiFi</h2>
+
+<p>After uploading, the Inkplate boots and shows a setup screen:</p>
+
+<div class="steps" style="counter-reset: step;">
+<div class="step">
+  <p>On your phone or computer, connect to the WiFi network <strong><code>Inkplate-Setup</code></strong> (no password).</p>
+</div>
+<div class="step">
+  <p>A captive portal page should open automatically. If not, open a browser and go to <strong><code>http://192.168.4.1</code></strong>.</p>
+</div>
+<div class="step">
+  <p>Enter your WiFi network name (SSID) and password, then click <strong>Connect</strong>.</p>
+</div>
+<div class="step">
+  <p>The Inkplate restarts and connects to your network. It displays its IP address on the screen.</p>
+</div>
+</div>
+
+<div class="note">
+  The WiFi credentials are saved in the Inkplate's non-volatile storage. You only need to do this once. To change networks later, reset the Inkplate's stored credentials by reflashing the sketch.
+</div>
+
+<h2>Step 6 — Add the Printer to Your Computer</h2>
+
+<h3>Mac (recommended method)</h3>
+<p>Open <strong>Terminal</strong> and run:</p>
+<pre><code>lpadmin -p Inkplate -v ipp://Inkplate-printer.local:631/ipp/print -m everywhere
+cupsenable Inkplate</code></pre>
+<p>The printer now appears in <strong>System Settings &rarr; Printers &amp; Scanners</strong> and in all applications' Print dialogs.</p>
+
+<div class="note">
+  You can also try adding via <strong>System Settings &rarr; Printers &amp; Scanners &rarr; Add Printer</strong>. The Inkplate appears as <strong>Inkplate-printer</strong> under Bonjour. If the &ldquo;Use&rdquo; dropdown says &ldquo;Choose a Driver&rdquo;, use the Terminal method above instead.
+</div>
+
+<h3>Windows</h3>
+<p>Go to <strong>Settings &rarr; Devices &rarr; Printers &amp; scanners &rarr; Add a printer</strong>. The Inkplate should appear in the list. Select it and click <strong>Add device</strong>.</p>
+<p>If it doesn't appear, click <strong>The printer I want isn't listed</strong>, choose <strong>Add a printer using a TCP/IP address</strong>, and enter:</p>
+<ul>
+  <li><strong>Hostname:</strong> <code>Inkplate-printer.local</code></li>
+  <li><strong>Port:</strong> <code>631</code></li>
+  <li><strong>Device type:</strong> IPP</li>
+</ul>
+
+<h2>Step 7 — Print Something</h2>
+
+<p>Open any document, web page, or email, and print it. Select <strong>Inkplate</strong> as the printer.</p>
+
+<h3>Paper size tips</h3>
+<p>The Inkplate advertises a custom page size (~3.6" &times; 4.8") that matches the physical display. Most apps pick this up automatically. For best results:</p>
+<ul>
+  <li><strong>Web browsers (Safari, Chrome):</strong> Usually work without any changes. The page is automatically scaled to fit.</li>
+  <li><strong>Microsoft Word:</strong> Go to <strong>Layout &rarr; Size &rarr; More Paper Sizes</strong> and set a custom size of <strong>3.61" &times; 4.82"</strong> (or 91.8mm &times; 122.4mm). Set margins to <strong>0.3"</strong> or smaller.</li>
+  <li><strong>Plain text (Terminal):</strong> <code>echo "Hello" | lp -d Inkplate</code></li>
+</ul>
+
+<h2>Using the Inkplate</h2>
+
+<h3>Touch controls</h3>
+<table>
+  <tr><th>Touchpad</th><th>Action</th></tr>
+  <tr><td><strong>Pad 1</strong> (left)</td><td>Previous page</td></tr>
+  <tr><td><strong>Pad 2</strong> (center)</td><td>Next page</td></tr>
+  <tr><td><strong>Pad 3</strong> (right)</td><td>Next document</td></tr>
+  <tr><td><strong>All three</strong> (hold 3 seconds)</td><td>Delete current document (with confirmation)</td></tr>
+</table>
+
+<h3>Status bar</h3>
+<p>The bottom of the display shows: <code>Doc 1/3 &nbsp; Page 2/5 &nbsp; WiFi</code></p>
+
+<h3>Storage</h3>
+<p>Documents are stored on the SD card in <code>/print/doc_NNNN/</code> folders. When the SD card fills up, the oldest document is automatically deleted to make room for new prints.</p>
+
+<h2>Troubleshooting</h2>
+
+<h3>Printer doesn't appear on the network</h3>
+<ul>
+  <li>Check the Inkplate screen &mdash; does it show an IP address? If it shows &ldquo;WiFi Setup&rdquo;, the WiFi credentials need to be entered.</li>
+  <li>Make sure your computer and the Inkplate are on the same WiFi network.</li>
+  <li>Try: <code>dns-sd -B _ipp._tcp</code> in Terminal (Mac) to check if the printer is broadcasting.</li>
+</ul>
+
+<h3>Print jobs fail or hang</h3>
+<ul>
+  <li>Check that the SD card is inserted and formatted as FAT32.</li>
+  <li>Open Arduino IDE's Serial Monitor (115200 baud) to see debug output from the Inkplate.</li>
+  <li>Re-enable the printer if it got disabled: <code>cupsenable Inkplate</code></li>
+</ul>
+
+<h3>Text is too small</h3>
+<ul>
+  <li>The printer's page size is ~3.6" &times; 4.8". If an app prints to a larger page (Letter, A4), the content is scaled down to fit. Set the paper size in the app to match the Inkplate's custom size.</li>
+  <li>In web browsers, you can reduce the scale percentage in the Print dialog.</li>
+</ul>
+
+<h3>Display shows a blank page</h3>
+<ul>
+  <li>Some text filters (like the macOS plain text filter via <code>lp</code>) may produce blank pages for custom page sizes. Try printing from a real app (Safari, TextEdit) instead.</li>
+</ul>
+
+<h3>Upload fails</h3>
+<ul>
+  <li>Try a lower upload speed: <strong>Tools &rarr; Upload Speed &rarr; 115200</strong>.</li>
+  <li>Hold the <strong>BOOT</strong> button, press <strong>RESET</strong>, release BOOT, then click Upload.</li>
+  <li>Try a different USB cable (some are charge-only).</li>
+</ul>
+
+<h2>Hardware Differences</h2>
+
+<table>
+  <tr><th>Feature</th><th>Inkplate 6</th><th>Inkplate 6 Color</th></tr>
+  <tr><td>Display</td><td>800 &times; 600 px</td><td>600 &times; 448 px</td></tr>
+  <tr><td>Grayscale levels</td><td>8 (3-bit)</td><td>N/A</td></tr>
+  <tr><td>Colors</td><td>N/A</td><td>7 (black, white, green, blue, red, yellow, orange)</td></tr>
+  <tr><td>Partial display refresh</td><td>Yes (1-bit mode)</td><td>No</td></tr>
+  <tr><td>Dithering</td><td>Floyd-Steinberg to 8 gray levels</td><td>Floyd-Steinberg to 7-color palette</td></tr>
+  <tr><td>Config define</td><td><code>INKPLATE_MODEL_MONO</code></td><td><code>INKPLATE_MODEL_COLOR</code></td></tr>
+  <tr><td>Board in Arduino IDE</td><td><code>e-radionica.com Inkplate6</code></td><td><code>Soldered Inkplate 6COLOR</code></td></tr>
+</table>
+
+</div>
+
+<script>
+function showTab(id) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-group button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body>
+</html>
