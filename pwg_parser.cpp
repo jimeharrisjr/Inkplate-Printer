@@ -10,7 +10,7 @@
 #define URF_SYNC_WORD          0x554E4952  // "UNIR"
 
 #define PWG_HDR_SIZE           1796
-#define URF_PAGE_HDR_SIZE      36
+#define URF_PAGE_HDR_SIZE      32
 
 // PWG page header field offsets (big-endian uint32)
 #define PWG_OFF_WIDTH          372
@@ -34,15 +34,18 @@ static DocFormat sDocFormat = FMT_PWG;
 #define CSPACE_SRGB            19  // sRGB
 
 // ── Buffers ─────────────────────────────────────────────────
-// Sized for the larger model's needs at compile time.
+// Input can be up to Letter/A4 at 150 DPI (~1275px wide).
+// We scale down to SCREEN_WIDTH × SCREEN_HEIGHT for output.
 
-#define MAX_PX_WIDTH           SCREEN_WIDTH
-#define MAX_LINE_BYTES         (MAX_PX_WIDTH * 3)  // worst case: RGB
+#define MAX_INPUT_WIDTH        1600          // max input px (Letter@200dpi)
+#define MAX_INPUT_BPP          3             // max bytes per pixel (RGB)
+#define MAX_LINE_BYTES         (MAX_INPUT_WIDTH * MAX_INPUT_BPP)
 
 static uint8_t  sLineBuf[MAX_LINE_BYTES];   // decompressed input line
-static uint8_t  sOutBuf[MAX_PX_WIDTH];      // dithered output line
-static int16_t  sErrCur[MAX_PX_WIDTH * 3];  // current-line error (up to 3 ch)
-static int16_t  sErrNxt[MAX_PX_WIDTH * 3];  // next-line error
+static uint8_t  sScaleBuf[SCREEN_WIDTH * MAX_INPUT_BPP]; // scaled line
+static uint8_t  sOutBuf[SCREEN_WIDTH];      // dithered output line
+static int16_t  sErrCur[SCREEN_WIDTH * 3];  // current-line error
+static int16_t  sErrNxt[SCREEN_WIDTH * 3];  // next-line error
 
 // ── Stream reading with byte tracking ───────────────────────
 // Uses ippReadBody() which handles chunked transfer encoding.
@@ -235,37 +238,48 @@ static bool parsePage(int docId, int pageNum) {
             Serial.println("[URF]  Failed to read page header");
             return false;
         }
-        bitsPerPixel = hdr[4];  // 8=gray, 24=RGB, 32=RGBA
-        uint8_t urfCS = hdr[5]; // 0=sGray, 1=sRGB
+        bitsPerPixel = hdr[0];  // 8=gray, 24=RGB, 32=RGBA
+        uint8_t urfCS = hdr[1]; // 0=sGray, 1=sRGB
         colorSpace   = (urfCS == 0) ? CSPACE_SW : CSPACE_SRGB;
-        width        = readBE32(hdr + 16);
-        height       = readBE32(hdr + 20);
+        width        = readBE32(hdr + 12);
+        height       = readBE32(hdr + 16);
         bytesPerLine = width * (bitsPerPixel / 8);
         compression  = 1; // URF always uses PackBits
     }
 
-    Serial.printf("[%s]  Page %d: %ux%u, %ubpp, cs=%u, bpl=%u, comp=%u\n",
+    int inW = (int)width;
+    int inH = (int)height;
+    int bpp = (int)(bitsPerPixel / 8);  // bytes per pixel (1 or 3)
+
+    Serial.printf("[%s]  Page %d: %dx%d, %ubpp, cs=%u, bpl=%u, comp=%u\n",
                   sDocFormat == FMT_URF ? "URF" : "PWG",
-                  pageNum, (unsigned)width, (unsigned)height,
+                  pageNum, inW, inH,
                   (unsigned)bitsPerPixel, (unsigned)colorSpace,
                   (unsigned)bytesPerLine, (unsigned)compression);
 
-    // Validate dimensions
-    int outWidth  = (int)width;
-    int outHeight = (int)height;
-    if (outWidth > MAX_PX_WIDTH) outWidth = MAX_PX_WIDTH;
-    if (outWidth <= 0 || outHeight <= 0 || bytesPerLine == 0) {
+    // Validate
+    if (inW <= 0 || inH <= 0 || bytesPerLine == 0) {
         Serial.println("[PWG]  Invalid page dimensions");
         return false;
     }
     if ((int)bytesPerLine > MAX_LINE_BYTES) {
-        Serial.println("[PWG]  Line too wide for buffer");
+        Serial.printf("[PWG]  Line too wide: %u > %d\n",
+                      (unsigned)bytesPerLine, MAX_LINE_BYTES);
         return false;
     }
 
     // Determine processing mode
     bool isRGB = (colorSpace == CSPACE_RGB || colorSpace == CSPACE_SRGB);
     bool usePackBits = (compression != 0);
+
+    // Scaling: if input is larger than screen, scale to fit
+    bool needScale = (inW != SCREEN_WIDTH || inH != SCREEN_HEIGHT);
+    int outW = SCREEN_WIDTH;
+    int outH = SCREEN_HEIGHT;
+
+    if (needScale) {
+        Serial.printf("[PWG]  Scaling %dx%d → %dx%d\n", inW, inH, outW, outH);
+    }
 
     // Open page file
     if (!sdOpenPageWrite(docId, pageNum)) return false;
@@ -274,17 +288,25 @@ static bool parsePage(int docId, int pageNum) {
     memset(sErrCur, 0, sizeof(sErrCur));
     memset(sErrNxt, 0, sizeof(sErrNxt));
 
-    // Process scanlines
-    int linesOutput = 0;
-    while (linesOutput < outHeight) {
+    // Process scanlines.
+    // We read ALL input lines but only output lines that map to output rows.
+    // For scaling height: output row R maps to input row R * inH / outH.
+    // We track which output row we're expecting next and emit lines when
+    // the input row matches.
+    int inputLine  = 0;   // current input line number
+    int outputLine = 0;   // next output line to produce
+    int nextInputForOutput = 0; // input line that maps to the next output row
+
+    while (inputLine < inH) {
         // Read line repeat count
         int repeatCount = streamReadByte();
         if (repeatCount < 0) {
-            Serial.printf("[PWG]  Stream ended at line %d/%d\n",
-                          linesOutput, outHeight);
+            Serial.printf("[PWG]  Stream ended at input line %d/%d\n",
+                          inputLine, inH);
             break;
         }
-        // Read one line: PackBits compressed or raw uncompressed
+
+        // Decompress/read one input line
         bool lineOK;
         if (usePackBits) {
             lineOK = decompressLine(sLineBuf, (int)bytesPerLine);
@@ -292,54 +314,73 @@ static bool parsePage(int docId, int pageNum) {
             lineOK = (streamRead(sLineBuf, (int)bytesPerLine) == (int)bytesPerLine);
         }
         if (!lineOK) {
-            Serial.printf("[PWG]  Read failed at line %d (comp=%d)\n",
-                          linesOutput, (int)compression);
+            Serial.printf("[PWG]  Read failed at input line %d\n", inputLine);
             break;
         }
 
-        // Output this line (repeatCount + 1) times
-        for (int rep = 0; rep <= repeatCount && linesOutput < outHeight;
-             rep++, linesOutput++) {
-            // Convert/dither
-#ifdef INKPLATE_MODEL_COLOR
-            if (isRGB) {
-                ditherColorLine(outWidth);
-            } else {
-                // Grayscale input on color display: treat as gray
-                // Convert each gray pixel to RGB (R=G=B=gray) then dither
-                for (int x = outWidth - 1; x >= 0; x--) {
-                    sLineBuf[x * 3 + 0] = sLineBuf[x];
-                    sLineBuf[x * 3 + 1] = sLineBuf[x];
-                    sLineBuf[x * 3 + 2] = sLineBuf[x];
+        // This decompressed line covers input rows [inputLine .. inputLine+repeatCount]
+        int lineStart = inputLine;
+        int lineEnd   = inputLine + repeatCount; // inclusive
+        inputLine = lineEnd + 1;
+
+        // Check which output rows map into this input line range
+        while (outputLine < outH && nextInputForOutput <= lineEnd) {
+            // Scale the input line horizontally → sScaleBuf
+            uint8_t* src = sLineBuf;
+            if (needScale && inW != outW) {
+                // Nearest-neighbor horizontal scale
+                for (int ox = 0; ox < outW; ox++) {
+                    int ix = (int)((long)ox * inW / outW);
+                    if (ix >= inW) ix = inW - 1;
+                    for (int c = 0; c < bpp; c++)
+                        sScaleBuf[ox * bpp + c] = sLineBuf[ix * bpp + c];
                 }
-                ditherColorLine(outWidth);
+                src = sScaleBuf;
             }
-#else
-            if (isRGB) {
-                rgbToGray(sLineBuf, outWidth);
-            }
-            ditherGrayscaleLine(outWidth);
-#endif
 
-            // Write dithered row to SD
-            sdWritePageRow(sOutBuf, outWidth);
-
-            // Swap error buffers: next becomes current, clear next
-            // Mono always dithers in 1 channel; Color always in 3 channels
+            // Convert and dither at output width
 #ifdef INKPLATE_MODEL_COLOR
-            int errChans = 3;
+            if (isRGB) {
+                // Copy scaled line to sLineBuf for dithering if needed
+                if (src != sLineBuf) memcpy(sLineBuf, src, outW * bpp);
+                ditherColorLine(outW);
+            } else {
+                for (int x = outW - 1; x >= 0; x--) {
+                    sLineBuf[x * 3 + 0] = src[x];
+                    sLineBuf[x * 3 + 1] = src[x];
+                    sLineBuf[x * 3 + 2] = src[x];
+                }
+                ditherColorLine(outW);
+            }
 #else
-            int errChans = 1;
+            if (src != sLineBuf) memcpy(sLineBuf, src, outW * bpp);
+            if (isRGB) {
+                rgbToGray(sLineBuf, outW);
+            }
+            ditherGrayscaleLine(outW);
 #endif
-            memcpy(sErrCur, sErrNxt, sizeof(int16_t) * outWidth * errChans);
-            memset(sErrNxt, 0, sizeof(int16_t) * outWidth * errChans);
+
+            sdWritePageRow(sOutBuf, outW);
+
+            // Swap error buffers
+#ifdef INKPLATE_MODEL_COLOR
+            int errCh = 3;
+#else
+            int errCh = 1;
+#endif
+            memcpy(sErrCur, sErrNxt, sizeof(int16_t) * outW * errCh);
+            memset(sErrNxt, 0, sizeof(int16_t) * outW * errCh);
+
+            outputLine++;
+            nextInputForOutput = (int)((long)outputLine * inH / outH);
         }
     }
 
     sdClosePageWrite();
 
-    Serial.printf("[PWG]  Page %d: %d lines written\n", pageNum, linesOutput);
-    return linesOutput > 0;
+    Serial.printf("[PWG]  Page %d: %d lines written (from %dx%d input)\n",
+                  pageNum, outputLine, inW, inH);
+    return outputLine > 0;
 }
 
 // ── Public API ──────────────────────────────────────────────
@@ -361,14 +402,16 @@ int pwgParseDocument(int docId, int bytesAvailable) {
     uint32_t syncWord = readBE32(sync);
     if (syncWord == URF_SYNC_WORD) {
         sDocFormat = FMT_URF;
-        // URF file header is "UNIRAST\0" — 8 bytes total.
-        // We already read "UNIR" (4); skip "AST\0" (4 more).
-        uint8_t urfHdr[4];
-        if (streamRead(urfHdr, 4) != 4) {
+        // URF file header: "UNIRAST\0" (8 bytes) + page count (4 bytes) = 12 total.
+        // We already read "UNIR" (4); read remaining 8 bytes.
+        uint8_t urfHdr[8];
+        if (streamRead(urfHdr, 8) != 8) {
             Serial.println("[URF]  Failed to read file header");
             return -1;
         }
-        Serial.println("[URF]  Apple Raster detected");
+        uint32_t urfPages = readBE32(urfHdr + 4); // page count at bytes 8-11
+        Serial.printf("[URF]  Apple Raster detected, %u pages\n",
+                      (unsigned)urfPages);
     } else if (syncWord == PWG_SYNC_WORD) {
         sDocFormat = FMT_PWG;
         Serial.println("[PWG]  PWG Raster detected");
