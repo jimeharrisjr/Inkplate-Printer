@@ -2,6 +2,8 @@
 
 Turn an [Inkplate 6](https://docs.soldered.com/inkplate/) into a wireless network printer. Print web pages, documents, and emails from any Mac or Windows computer — the Inkplate appears as a standard driverless printer on your network.
 
+### **[Full Documentation & Getting Started Guide](https://jimeharrisjr.github.io/Inkplate-Printer/)**
+
 ![Inkplate displaying a printed web page](inkplate_printer.jpeg)
 
 ## How It Works
